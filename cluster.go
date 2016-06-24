@@ -10,20 +10,24 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
-	"strconv"
 	"time"
 	
 	"github.com/hashicorp/raft"
 	"github.com/hashicorp/raft-boltdb"
 )
 
+//=====================================================================
+// Constants
+//=====================================================================
 const (
 	retainSnapshotCount = 2
 	raftTimeout         = 10 * time.Second
 )
 
 
+//=====================================================================
+// Types
+//=====================================================================
 type Cluster struct {
 	raftDir string
 	raftBind string
@@ -31,6 +35,10 @@ type Cluster struct {
 	data raft.FSM
 }
 
+//=====================================================================
+// Helpers
+//=====================================================================
+// Create a new cluster reference
 func newCluster (raftDir string, raftBind string, data raft.FSM) *Cluster {
 	return &Cluster{
 		raftDir: raftDir,
@@ -39,6 +47,30 @@ func newCluster (raftDir string, raftBind string, data raft.FSM) *Cluster {
 	}
 }
 
+// Read the persisted peers list
+func readPeersJSON(path string) ([]string, error) {
+	b, err := ioutil.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		return nil, err
+	}
+
+	if len(b) == 0 {
+		return nil, nil
+	}
+
+	var peers []string
+	dec := json.NewDecoder(bytes.NewReader(b))
+	if err := dec.Decode(&peers); err != nil {
+		return nil, err
+	}
+
+	return peers, nil
+}
+
+//=====================================================================
+// Cluster [Private]
+//=====================================================================
+// Add the given peer to the cluster (must be leader)
 func (c *Cluster) join(addr string) error {
 	f := c.raft.AddPeer(addr)
 	if f.Error() != nil {
@@ -46,32 +78,16 @@ func (c *Cluster) join(addr string) error {
 	}
 	return nil
 }
-	
+
+// Get the raft address of the leader
 func (c *Cluster) getLeaderRaftAddress () string {
 	return c.raft.Leader()
 }
 
-func (c *Cluster) getLeaderPeerAddress () (string, error) {
+// Get the leader service address of the leader
+func (c *Cluster) getLeaderServiceAddress () (string, error) {
 	leader := c.getLeaderRaftAddress()
-	parts := strings.Split(leader, ":")
-	if (len(parts) != 2) {
-		return "", fmt.Errorf("Unexpected leader format: %s", leader)
-	}
-	
-	// If ip is empty, it's loopback
-	if (parts[0] == "") {
-		parts[0] = "127.0.0.1"
-	}
-	
-	// By convention, assume the peer port is 1000 less than the raft port
-	// We should probably this more intelligently
-	port, err := strconv.Atoi(parts[1])
-	if (err != nil) {
-		return "", err
-	}
-	port -= 1000
-	parts[1] = strconv.Itoa(port)
-	return fmt.Sprintf("%s:%s", parts[0], parts[1]), nil
+	return raftBindToLeaderBind(leader)
 }
 
 func (c *Cluster) start (bootstrap bool) error {
@@ -120,25 +136,6 @@ func (c *Cluster) start (bootstrap bool) error {
 	return nil
 }
 
-func readPeersJSON(path string) ([]string, error) {
-	b, err := ioutil.ReadFile(path)
-	if err != nil && !os.IsNotExist(err) {
-		return nil, err
-	}
-
-	if len(b) == 0 {
-		return nil, nil
-	}
-
-	var peers []string
-	dec := json.NewDecoder(bytes.NewReader(b))
-	if err := dec.Decode(&peers); err != nil {
-		return nil, err
-	}
-
-	return peers, nil
-}
-
 func (c *Cluster) handleProposal (cmd []byte) error {
 	if c.raft.State() != raft.Leader {
 		return fmt.Errorf("not leader")
@@ -152,11 +149,14 @@ func (c *Cluster) handleProposal (cmd []byte) error {
 	return nil
 }
 
+//=====================================================================
+// Exports
+//=====================================================================
 // Propose a command to the cluster. The command is marshalled into json
 // The FSM Apply method must later unmarshall the data
 // This blocks until the proposal is accepted with quorum or an error occurs
 func (c *Cluster) Propose(cmd interface{}) error {
-	leader, err := c.getLeaderPeerAddress()
+	leader, err := c.getLeaderServiceAddress()
 	if (err != nil) {
 		return err
 	}

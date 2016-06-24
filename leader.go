@@ -2,16 +2,54 @@ package sailboat
 
 import (
 	"encoding/json"
+	"fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
+	"strings"
+	"strconv"
 	
 	"github.com/hashicorp/raft"
 )
 
+//=====================================================================
+// Constants
+//=====================================================================
+const (
+	leaderServicePortOffset = -1000
+)
+
+//=====================================================================
+// Types
+//=====================================================================
 type leaderService struct {
 	addr string
 	cluster *Cluster
+}
+
+//=====================================================================
+// Helpers
+//=====================================================================
+func raftBindToLeaderBind (raftBind string) (string, error) {
+	parts := strings.Split(raftBind, ":")
+	if (len(parts) != 2) {
+		return "", fmt.Errorf("Unexpected format: %s", raftBind)
+	}
+	
+	// If ip is empty, it's loopback
+	if (parts[0] == "") {
+		parts[0] = "127.0.0.1"
+	}
+	
+	// By convention, assume the peer port is a constant offset from
+	// the raft port.
+	port, err := strconv.Atoi(parts[1])
+	if (err != nil) {
+		return "", err
+	}
+	port += leaderServicePortOffset
+	parts[1] = strconv.Itoa(port)
+	return fmt.Sprintf("%s:%s", parts[0], parts[1]), nil
 }
 
 // Create a new leader service
@@ -22,6 +60,9 @@ func newLeaderService(addr string, cluster *Cluster) *leaderService {
 	}
 }
 
+//=====================================================================
+// leaderService [Private]
+//=====================================================================
 // Start starts the service.
 func (s *leaderService) start() error {
 	mux := http.NewServeMux()
@@ -67,7 +108,7 @@ func (s *leaderService) handleJoin(w http.ResponseWriter, r *http.Request) {
 		}
 		
 		// Handle NotLeader errors by forwarding to leader
-		leader, err := s.cluster.getLeaderPeerAddress()
+		leader, err := s.cluster.getLeaderServiceAddress()
 		if (err != nil) {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
