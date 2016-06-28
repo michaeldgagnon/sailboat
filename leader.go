@@ -16,7 +16,7 @@ import (
 // Constants
 //=====================================================================
 const (
-	leaderServicePortOffset = -1000
+	leaderServicePortOffset = 1
 )
 
 //=====================================================================
@@ -67,7 +67,7 @@ func newLeaderService(addr string, cluster *Cluster) *leaderService {
 func (s *leaderService) start() error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/join", s.handleJoin)
-	mux.HandleFunc("/cmd", s.handleCmd)
+	mux.HandleFunc("/propose", s.handleProposal)
 	
 	go func() {
 		if err := http.ListenAndServe(s.addr, mux); err != nil {
@@ -121,7 +121,7 @@ func (s *leaderService) handleJoin(w http.ResponseWriter, r *http.Request) {
 // This must always be received by the leader, or it will fail.
 // Proposers must always be active peers in the cluster and thus know the leader
 // This request will block until it fails or the proposal is accepted by quorum
-func (s *leaderService) handleCmd(w http.ResponseWriter, r *http.Request) {
+func (s *leaderService) handleProposal(w http.ResponseWriter, r *http.Request) {
 	body, err := ioutil.ReadAll(r.Body)
 	if (err != nil) {
 		w.WriteHeader(http.StatusBadRequest)

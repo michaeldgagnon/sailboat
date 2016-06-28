@@ -152,7 +152,7 @@ func (c *Cluster) handleProposal (cmd []byte) error {
 //=====================================================================
 // Exports
 //=====================================================================
-// Propose a command to the cluster. The command is marshalled into json
+// Propose an update to the cluster. The update is marshalled into json
 // The FSM Apply method must later unmarshall the data
 // This blocks until the proposal is accepted with quorum or an error occurs
 func (c *Cluster) Propose(cmd interface{}) error {
@@ -166,7 +166,7 @@ func (c *Cluster) Propose(cmd interface{}) error {
 		return err
 	}
 
-	rsp, err := http.Post(fmt.Sprintf("http://%s/cmd", leader), "application-type/json", bytes.NewReader(b))
+	rsp, err := http.Post(fmt.Sprintf("http://%s/propose", leader), "application-type/json", bytes.NewReader(b))
 	if err != nil {
 		return err
 	}
